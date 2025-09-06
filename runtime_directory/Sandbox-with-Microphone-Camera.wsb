@@ -1,0 +1,25 @@
+<!-- Lockdown Browser in Windows Sandbox
+     https://github.com/gucci-on-fleek/lockdown-browser
+     SPDX-License-Identifier: MPL-2.0+
+     SPDX-FileCopyrightText: 2020-2025 gucci-on-fleek and Voidless7125
+-->
+<Configuration>
+    <MappedFolders>
+        <MappedFolder>
+            <HostFolder>C:\Users\leanv\newlockdown-browser\runtime_directory</HostFolder>
+            <ReadOnly>true</ReadOnly>
+        </MappedFolder>
+        <MappedFolder>
+            <HostFolder>C:\Users\leanv\newlockdown-browser\logs</HostFolder>
+            <ReadOnly>false</ReadOnly>
+        </MappedFolder>
+    </MappedFolders>
+    <LogonCommand>
+        <Command>powershell.exe -ExecutionPolicy Bypass -File C:\Users\wdagutilityaccount\Desktop\runtime_directory\sandbox_run.ps1</Command>
+    </LogonCommand>
+    <AudioInput>Enable</AudioInput>
+    <VideoInput>Enable</VideoInput>
+    <ProtectedClient>Enable</ProtectedClient>
+    <ClipboardRedirection>False</ClipboardRedirection>
+    <vGPU>Enable</vGPU>
+</Configuration>

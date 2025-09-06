@@ -102,14 +102,41 @@ Set-Location "C:\Users\WDAGUtilityAccount\Desktop\runtime_directory"
 '@
     }
     else {
-        $script_content = @"
-Set-Location C:\Users\WDAGUtilityAccount\Desktop\runtime_directory\
-.\withdll.exe /d:GetSystemMetrics-Hook.dll "C:\Program Files (x86)\Respondus\LockDown Browser\LockDownBrowser.exe"
-"@
+        # EXACT content requested (single-quoted here-string to avoid interpolation)
+        $script_content = @'
+# Run-LockdownBrowser.ps1 - Simple injection only
+$ErrorActionPreference = 'Stop'
+# Paths/config
+$runtime   = 'C:\Users\WDAGUtilityAccount\Desktop\runtime_directory'
+$withdll   = Join-Path $runtime 'withdll.exe'
+$hook      = 'GetSystemMetrics-Hook.dll'
+$target    = 'C:\Program Files (x86)\Respondus\LockDown Browser\LockDownBrowser.exe'
+# IFEO registry (32-bit target on 64-bit Windows)
+$ifeoKey   = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\LockDownBrowser.exe'
+$filterKey = Join-Path $ifeoKey 'RespondusPath'
+# Remove IFEO settings to prevent recursion
+if (Get-ItemProperty -Path $ifeoKey -Name Debugger -ErrorAction SilentlyContinue) { 
+    Remove-ItemProperty -Path $ifeoKey -Name Debugger -ErrorAction SilentlyContinue 
+}
+if (Get-ItemProperty -Path $filterKey -Name Debugger -ErrorAction SilentlyContinue) { 
+    Remove-ItemProperty -Path $filterKey -Name Debugger -ErrorAction SilentlyContinue 
+}
+if (Get-ItemProperty -Path $ifeoKey -Name UseFilter -ErrorAction SilentlyContinue) {
+    Remove-ItemProperty -Path $ifeoKey -Name UseFilter -ErrorAction SilentlyContinue
+}
+# Wait for registry changes
+Start-Sleep -Milliseconds 500
+# Run injection and exit
+Set-Location -Path $runtime
+& $withdll /d:$hook $target
+'@
     }
+
     $script_path = Join-Path -Path $desktop_path -ChildPath "Run-LockdownBrowser.ps1"
     Set-Content -Path $script_path -Value $script_content
     Set-ItemProperty -Path $script_path -Name Attributes -Value ([System.IO.FileAttributes]::Hidden)
+
+    # Desktop shortcut
     $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut("$desktop_path\Lockdown Browser.lnk")
     $shortcut.TargetPath = "powershell.exe"
     $shortcut.Arguments = "-File `"$script_path`""
@@ -165,6 +192,45 @@ Set-Location C:\Users\WDAGUtilityAccount\Desktop\runtime_directory\
     }
 }
 
+
+function Register-IFEORestoreService {
+    param(
+        [string]$ServiceName = 'IFEORestoreService',
+        [string]$DisplayName = 'IFEO Restore Service',
+        [string]$ExePath = 'C:\Users\WDAGUtilityAccount\Desktop\runtime_directory\IFEORestoreService.exe'
+    )
+
+    Write-Log "Registering $ServiceName..."
+
+    # Ensure the binary path exists
+    if (-not (Test-Path -LiteralPath $ExePath)) {
+        throw "Executable not found at: $ExePath"
+    }
+
+    # sc.exe requires a space after each 'name=' token per syntax
+    $createArgs = @(
+        'create', $ServiceName,
+        'binPath=', "`"$ExePath`"",
+        'DisplayName=', "`"$DisplayName`"",
+        'start=', 'auto'
+    )
+
+    $startArgs       = @('start',       $ServiceName)
+    $failureFlagArgs = @('failureflag', $ServiceName, 'flag=', '1')
+    $failureArgs     = @('failure',     $ServiceName, 'reset=', '60', 'actions=', 'restart/5000/restart/5000/restart/5000')
+
+    foreach ($argList in @($createArgs, $startArgs, $failureFlagArgs, $failureArgs)) {
+        $p = Start-Process -FilePath sc.exe -ArgumentList $argList -NoNewWindow -PassThru -Wait 2>$null
+        if ($p.ExitCode -ne 0) {
+            throw "sc.exe failed with exit code $($p.ExitCode): $($argList -join ' ')"
+        }
+        Write-Log "Executed: sc $($argList -join ' ')"
+    }
+
+    Write-Log "$ServiceName registered and configured."
+}
+
+
 try {
     # Functions in PowerShell are supposed to be like this, just learned.
     Write-Log "----------------------------------------"
@@ -195,6 +261,7 @@ try {
     Install-LockdownBrowser
     Register-URLProtocol
     New-RunLockdownBrowserScript
+    Register-IFEORestoreService
     Write-Log "Script completed."
 }
 catch {
